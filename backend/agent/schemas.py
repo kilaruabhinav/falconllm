@@ -1,5 +1,5 @@
 from typing import Any, Dict, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ToolDefinition(BaseModel):
@@ -23,10 +23,30 @@ class AgentAction(BaseModel):
     )
 
     tool: Optional[str] = None
-
     arguments: Optional[Dict[str, Any]] = None
-
     answer: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_action(self):
+
+        if self.type == "tool":
+
+            if not self.tool:
+                raise ValueError(
+                    "Tool action requires 'tool'."
+                )
+
+            if self.arguments is None:
+                self.arguments = {}
+
+        elif self.type == "final":
+
+            if self.answer is None:
+                raise ValueError(
+                    "Final action requires 'answer'."
+                )
+
+        return self
 
 
 class TraceStep(BaseModel):
@@ -37,3 +57,15 @@ class TraceStep(BaseModel):
     arguments: Optional[Dict[str, Any]] = None
     result: Optional[Any] = None
     error: Optional[str] = None
+
+
+class AgentResult(BaseModel):
+    status: Literal[
+        "completed",
+        "failed",
+        "max_iterations"
+    ]
+
+    answer: Optional[str] = None
+    iterations: int
+    trace: list[TraceStep]
