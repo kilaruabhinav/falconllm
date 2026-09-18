@@ -62,6 +62,10 @@ class TraceStore(Protocol):
         """Retrieve all ordered trace steps for a run_id."""
         ...
 
+    def list_runs(self, limit: int = 50) -> list[RunRecord]:
+        """Retrieve recent runs in reverse chronological order."""
+        ...
+
     def close(self) -> None:
         """Close persistence resources."""
         ...

@@ -49,11 +49,7 @@ async def main():
 
     for item in result.trace:
 
-        print(
-            item.model_dump(
-                exclude_none=True
-            )
-        )
+        print(item.to_dict())
 
 
 if __name__ == "__main__":

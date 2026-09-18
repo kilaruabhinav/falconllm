@@ -1,11 +1,11 @@
-"""Run the real Gemini decision loop with temporary mock tools."""
+"""Run the real Gemini decision loop with the production tool registry."""
 import argparse
 import asyncio
 
 from backend.agent.config import AgentConfig
 from backend.agent.engine import AgentEngine
 from backend.agent.llm_factory import create_llm
-from backend.tools.mock_registry import MockToolRegistry
+from backend.tools.factory import create_tool_registry
 
 
 async def main(query: str | None = None) -> int:
@@ -19,21 +19,21 @@ async def main(query: str | None = None) -> int:
     try:
         if query is None:
             try:
-                query = input("Ask the agent (tools are mocks): ")
+                query = input("Ask the agent: ")
             except EOFError:
                 print("Provide a query interactively or with --query.")
                 return 1
         if not query.strip():
             print("Please provide a non-empty query.")
             return 1
-        agent = AgentEngine(llm=llm, tool_registry=MockToolRegistry(), config=config)
+        agent = AgentEngine(llm=llm, tool_registry=create_tool_registry(config), config=config)
         result = await agent.run(query)
         print("Status:", result.status)
         print("Answer:", result.answer)
         print("Iterations:", result.iterations)
         print("Trace:")
         for step in result.trace:
-            print(step.model_dump_json(exclude_none=True))
+            print(step.to_dict())
         return 0 if result.status == "completed" else 1
     finally:
         await llm.aclose()

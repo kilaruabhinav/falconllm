@@ -16,3 +16,6 @@ frontend/node_modules/
 .idea/
 *.sqlite
 *.sqlite3
+backend/venv/
+dist/
+coverage/

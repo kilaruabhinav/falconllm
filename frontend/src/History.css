@@ -1,0 +1,6 @@
+.history-panel { margin-top: 24px; padding: 24px; }
+.history-list { display: grid; gap: 10px; }
+.history-list article { background: var(--input); border-radius: 9px; padding: 12px; }
+.history-list strong { color: var(--text-strong); }
+.history-list span { color: var(--accent); float: right; font-size: .72rem; font-weight: 700; text-transform: lowercase; }
+.history-list p { color: var(--text-muted); margin: 7px 0 0; }

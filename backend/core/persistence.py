@@ -343,6 +343,20 @@ class SQLiteTraceStore(TraceStore):
             steps.append(step)
         return steps
 
+    def list_runs(self, limit: int = 50) -> list[RunRecord]:
+        """Return recent runs without loading their trace payloads."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200:
+            raise ValueError("limit must be an integer from 1 to 200")
+        rows = self._get_connection().execute(
+            """
+            SELECT run_id, user_query, status, created_at, updated_at,
+                   completed_at, final_answer, metadata_json, error_json
+            FROM runs ORDER BY created_at DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [RunRecord(**dict(row)) for row in rows]
+
     def close(self) -> None:
         """Close all cached connections."""
         with self._lock:
