@@ -1,5 +1,7 @@
 from typing import Any, Dict, List
 
+from backend.agent.llm_client import BaseLLMClient
+from backend.tools.registry import ToolRegistry
 from backend.agent.parser import (
     AgentParseError,
     parse_agent_response,
@@ -7,6 +9,7 @@ from backend.agent.parser import (
 from backend.agent.planner import Planner
 from backend.agent.schemas import (
     AgentResult,
+    ToolResult,
     TraceStep,
 )
 
@@ -15,8 +18,8 @@ class AgentEngine:
 
     def __init__(
         self,
-        llm,
-        tool_registry,
+        llm: BaseLLMClient,
+        tool_registry: ToolRegistry,
         trace_manager=None,
         config=None,
     ):
@@ -34,6 +37,9 @@ class AgentEngine:
             10,
         )
 
+        if not isinstance(self.max_iterations, int) or self.max_iterations < 1:
+            raise ValueError("MAX_AGENT_ITERATIONS must be a positive integer.")
+
     async def run(
         self,
         user_query: str,
@@ -49,15 +55,12 @@ class AgentEngine:
 
         step_counter = 0
 
-        available_tools = (
-            self.tool_registry
-            .get_tool_schemas()
-        )
-
         for iteration in range(
             1,
             self.max_iterations + 1,
         ):
+
+            available_tools = self.tool_registry.get_tool_schemas()
 
             messages = (
                 self.planner.build_messages(
@@ -133,6 +136,8 @@ class AgentEngine:
 
                 continue
 
+            history.append({"type": "action", "action": action.model_dump(exclude_none=True)})
+
             step_counter += 1
 
             trace.append(
@@ -186,6 +191,8 @@ class AgentEngine:
                         or {},
                     )
                 )
+
+                tool_result = ToolResult.model_validate(tool_result)
 
             except Exception as exc:
 

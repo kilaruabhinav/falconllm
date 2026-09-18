@@ -1,4 +1,5 @@
 import json
+import re
 
 from pydantic import ValidationError
 
@@ -11,7 +12,7 @@ class AgentParseError(Exception):
 
 def parse_agent_response(response: str) -> AgentAction:
 
-    if not response or not response.strip():
+    if not isinstance(response, str) or not response.strip():
         raise AgentParseError(
             "LLM returned an empty response."
         )
@@ -19,12 +20,9 @@ def parse_agent_response(response: str) -> AgentAction:
     cleaned = response.strip()
 
     # Handle models that accidentally wrap JSON in markdown fences.
-    if cleaned.startswith("```"):
-
-        cleaned = cleaned.strip("`")
-
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:].strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", cleaned, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        cleaned = fenced.group(1).strip()
 
     try:
         data = json.loads(cleaned)

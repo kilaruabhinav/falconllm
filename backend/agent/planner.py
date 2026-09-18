@@ -1,3 +1,5 @@
+import json
+
 from typing import Any, Dict, List
 
 from backend.agent.prompts import AGENT_SYSTEM_PROMPT
@@ -36,7 +38,7 @@ class Planner:
 
             messages.append(
                 {
-                    "role": "user",
+                    "role": "assistant" if item.get("type") == "action" else "user",
                     "content": self._format_history_item(
                         item
                     ),
@@ -64,18 +66,7 @@ class Planner:
         if not tools:
             return "No tools available."
 
-        lines = []
-
-        for tool in tools:
-
-            lines.append(
-                f"- {tool.get('name')}: "
-                f"{tool.get('description')}\n"
-                f"  Parameters: "
-                f"{tool.get('parameters', {})}"
-            )
-
-        return "\n".join(lines)
+        return json.dumps(tools, ensure_ascii=False)
 
     def _format_history_item(
         self,
@@ -86,6 +77,9 @@ class Planner:
             "type",
             "observation"
         )
+
+        if item_type == "action":
+            return json.dumps(item["action"], ensure_ascii=False)
 
         if item_type == "tool_result":
 

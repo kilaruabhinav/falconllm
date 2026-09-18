@@ -1,5 +1,5 @@
 from typing import Any, Dict, Literal, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ToolDefinition(BaseModel):
@@ -16,6 +16,8 @@ class ToolResult(BaseModel):
 
 
 class AgentAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     type: Literal["tool", "final"]
 
     plan: str = Field(
@@ -29,22 +31,30 @@ class AgentAction(BaseModel):
     @model_validator(mode="after")
     def validate_action(self):
 
+        if not self.plan.strip():
+            raise ValueError("Action requires a non-empty operational summary.")
+
         if self.type == "tool":
 
-            if not self.tool:
+            if not self.tool or not self.tool.strip():
                 raise ValueError(
                     "Tool action requires 'tool'."
                 )
 
             if self.arguments is None:
-                self.arguments = {}
+                raise ValueError("Tool action requires an arguments object (possibly empty).")
+            if self.answer is not None:
+                raise ValueError("Tool action must not include an answer.")
 
         elif self.type == "final":
 
-            if self.answer is None:
+            if self.answer is None or not self.answer.strip():
                 raise ValueError(
                     "Final action requires 'answer'."
                 )
+
+            if self.tool is not None or self.arguments is not None:
+                raise ValueError("Final action must not include tool or arguments.")
 
         return self
 
