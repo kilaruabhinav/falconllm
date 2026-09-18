@@ -116,8 +116,8 @@ async def test_malformed_output_recovery(bad):
     llm = MockLLMClient([bad, final_action()])
     result = await AgentEngine(llm, MockToolRegistry()).run("test")
     assert result.status == "completed"
-    assert result.trace[0].type == "parse_error"
-    assert any("invalid" in m["content"] for m in llm.calls[1]["messages"])
+    assert any(step.type == "parse_error" for step in result.trace)
+    assert any("invalid" in m["content"].lower() for m in llm.calls[1]["messages"])
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_llm_exception_recovery():
     llm = MockLLMClient([RuntimeError("temporarily unavailable"), final_action()])
     result = await AgentEngine(llm, MockToolRegistry()).run("test")
     assert result.status == "completed"
-    assert result.trace[0].type == "llm_error"
+    assert any(step.type == "llm_error" for step in result.trace)
     assert any("temporarily unavailable" in m["content"] for m in llm.calls[1]["messages"])
 
 
@@ -143,8 +143,9 @@ async def test_persistent_llm_failure_is_bounded():
     llm = MockLLMClient([RuntimeError("unavailable")] * 5)
     result = await AgentEngine(llm, MockToolRegistry(), config=TestConfig).run("test")
     assert result.status == "max_iterations"
-    assert len(result.trace) == 5
-    assert all(s.type == "llm_error" for s in result.trace)
+    assert [s.type for s in result.trace].count("llm_error") == 5
+    assert result.trace[0].type == "run_started"
+    assert result.trace[-1].type == "run_failed"
 
 
 @pytest.mark.asyncio
