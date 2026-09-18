@@ -13,6 +13,7 @@ class BaseTool(ABC):
     name: str
     description: str
     input_schema: dict[str, Any]
+    blocking = False
 
     @abstractmethod
     def execute(self, arguments: Mapping[str, Any]) -> ToolResult:

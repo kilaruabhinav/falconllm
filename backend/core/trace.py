@@ -10,10 +10,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum
 import json
+import logging
 import re
 import threading
+import time
 from typing import Any
 import uuid
+
+logger = logging.getLogger("ai_agent.trace")
 
 # Pattern for sensitive credentials, API keys, passwords, and tokens
 SENSITIVE_KEY_RE = re.compile(
@@ -103,6 +107,9 @@ class TraceStepType(str, Enum):
     TOOL_ERROR = "TOOL_ERROR"
     PARSE_ERROR = "PARSE_ERROR"
     LLM_ERROR = "LLM_ERROR"
+    LLM_PROVIDER_SELECTED = "LLM_PROVIDER_SELECTED"
+    LLM_PROVIDER_ERROR = "LLM_PROVIDER_ERROR"
+    LLM_FALLBACK = "LLM_FALLBACK"
     FINAL = "FINAL"
     ACTION = "ACTION"
     OBSERVATION = "OBSERVATION"
@@ -381,7 +388,13 @@ class ExecutionTrace:
             status="SUCCESS",
         )
 
-    def complete(self, final_output: str) -> TraceStep:
+    def complete(
+        self,
+        final_output: str,
+        *,
+        duration_ms: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> TraceStep:
         """Mark execution as completed with final output."""
         with self._lock:
             self.status = "COMPLETED"
@@ -391,7 +404,8 @@ class ExecutionTrace:
         return self.add_step(
             step_type=TraceStepType.RUN_COMPLETED,
             content=f"Agent completed execution with final answer",
-            data={"final_answer": final_output},
+            data={"final_answer": final_output, **(metadata or {})},
+            duration_ms=duration_ms,
             status="SUCCESS",
         )
 
@@ -483,10 +497,12 @@ class ExecutionTrace:
 class TraceManager:
     """High-level trace manager coordinating execution tracing and optional persistence."""
 
-    def __init__(self, store: Any = None) -> None:
+    def __init__(self, store: Any = None, publisher: Any = None) -> None:
         self.store = store
+        self.publisher = publisher
         self.active_traces: dict[str, ExecutionTrace] = {}
         self._lock = threading.Lock()
+        self._persistence_durations_ms: dict[str, list[float]] = {}
 
     def start_run(
         self,
@@ -512,8 +528,11 @@ class TraceManager:
         with self._lock:
             self.active_traces[rid] = trace
 
+        self._publish(trace.steps[0])
+
         # Persist if store attached
         if self.store is not None:
+            started = time.perf_counter()
             try:
                 from .protocols import RunRecord
                 rec = RunRecord(
@@ -527,6 +546,8 @@ class TraceManager:
                 self.store.append_step(trace.steps[0])
             except Exception as e:
                 logger.warning("TraceStore persist error in start_run: %s", e)
+            finally:
+                self._track_persistence(rid, started)
 
         return trace
 
@@ -535,10 +556,18 @@ class TraceManager:
         run_id: str,
         content: str,
         data: dict[str, Any] | None = None,
+        duration_ms: float | None = None,
     ) -> TraceStep:
         """Record a planning step."""
         trace = self._get_or_create(run_id)
-        step = trace.add_plan(content=content, data=data)
+        step = trace.add_step(
+            step_type=TraceStepType.PLAN,
+            content=content,
+            data=data,
+            duration_ms=duration_ms,
+            status="SUCCESS",
+        )
+        self._publish(step)
         self._persist_step(step)
         return step
 
@@ -554,6 +583,7 @@ class TraceManager:
         observation: Any = None,
         error: Any = None,
         metadata: dict[str, Any] | None = None,
+        duration_ms: float | None = None,
     ) -> TraceStep:
         """Record and persist an arbitrary canonical lifecycle event."""
         trace = self._get_or_create(run_id)
@@ -566,7 +596,9 @@ class TraceManager:
             observation=observation,
             error=error,
             metadata=metadata,
+            duration_ms=duration_ms,
         )
+        self._publish(step)
         self._persist_step(step)
         return step
 
@@ -584,6 +616,7 @@ class TraceManager:
             arguments=arguments,
             content=content or f"Agent selected tool '{tool_name}'",
         )
+        self._publish(step)
         self._persist_step(step)
         return step
 
@@ -599,6 +632,7 @@ class TraceManager:
             observation=observation,
             content=content or "Agent received observation",
         )
+        self._publish(step)
         self._persist_step(step)
         return step
 
@@ -617,6 +651,7 @@ class TraceManager:
             data=err_data,
             content=content or f"Agent error: {err_msg}",
         )
+        self._publish(step)
         self._persist_step(step)
         return step
 
@@ -633,13 +668,27 @@ class TraceManager:
             data=data,
             content=content or "Recovery decision generated",
         )
+        self._publish(step)
         self._persist_step(step)
         return step
 
-    def complete_run(self, run_id: str, final_output: str) -> TraceStep:
+    def complete_run(
+        self, run_id: str, final_output: str, duration_ms: float | None = None
+    ) -> TraceStep:
         """Complete an execution run."""
         trace = self._get_or_create(run_id)
-        step = trace.complete(final_output=final_output)
+        timings = self._persistence_durations_ms.get(run_id, [])
+        persistence = {
+            "database_writes": len(timings),
+            "database_total_ms": round(sum(timings), 3),
+            "database_average_ms": round(sum(timings) / len(timings), 3) if timings else 0,
+        }
+        step = trace.complete(
+            final_output=final_output,
+            duration_ms=duration_ms,
+            metadata={"timing": persistence},
+        )
+        self._publish(step)
         self._persist_step(step)
 
         if self.store is not None:
@@ -663,6 +712,7 @@ class TraceManager:
         """Fail an execution run."""
         trace = self._get_or_create(run_id)
         step = trace.fail(error_message=error_message)
+        self._publish(step)
         self._persist_step(step)
 
         if self.store is not None:
@@ -680,6 +730,14 @@ class TraceManager:
             except Exception as e:
                 logger.warning("TraceStore fail_run error: %s", e)
 
+        return step
+
+    def cancel_run(self, run_id: str, reason: str = "Cancelled by user") -> TraceStep:
+        """Cancel an execution run and publish/persist its terminal event."""
+        trace = self._get_or_create(run_id)
+        step = trace.cancel(reason)
+        self._publish(step)
+        self._persist_step(step)
         return step
 
     def get_trace(self, run_id: str) -> ExecutionTrace | None:
@@ -716,7 +774,23 @@ class TraceManager:
 
     def _persist_step(self, step: TraceStep) -> None:
         if self.store is not None:
+            started = time.perf_counter()
             try:
                 self.store.append_step(step)
             except Exception as e:
                 logger.warning("Failed to persist step %s: %s", step.step_id, e)
+            finally:
+                self._track_persistence(step.run_id, started)
+
+    def _publish(self, step: TraceStep) -> None:
+        if self.publisher is None:
+            return
+        try:
+            self.publisher(step)
+        except Exception as exc:
+            logger.warning("Live trace publish failed for %s: %s", step.step_id, exc)
+
+    def _track_persistence(self, run_id: str, started: float) -> None:
+        duration = (time.perf_counter() - started) * 1000
+        with self._lock:
+            self._persistence_durations_ms.setdefault(run_id, []).append(duration)

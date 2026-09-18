@@ -4,6 +4,7 @@ from backend.agent.engine import AgentEngine
 from backend.agent.mock_llm import (
     MockLLMClient,
 )
+from backend.agent.planner import Planner
 from backend.tools.mock_registry import (
     MockToolRegistry,
 )
@@ -187,3 +188,15 @@ async def test_dynamic_registry_and_repeated_runs():
     assert result2.iterations == 1
     assert result2.trace[0].step == 1
     assert not any("TOOL OBSERVATION" in m["content"] for m in llm.calls[2]["messages"])
+
+
+def test_planner_bounds_history_and_observation_size():
+    history = [
+        {"type": "tool_result", "tool": "search", "success": True, "result": "x" * 10_000}
+        for _ in range(12)
+    ]
+    messages = Planner().build_messages("query", history, [], 3)
+    observations = [message for message in messages if "TOOL OBSERVATION" in message["content"]]
+    assert len(observations) == Planner.MAX_HISTORY_ITEMS
+    assert all("[TRUNCATED]" in message["content"] for message in observations)
+    assert all(len(message["content"]) < 2_600 for message in observations)

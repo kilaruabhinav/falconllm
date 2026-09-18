@@ -6,6 +6,8 @@ from backend.agent.prompts import AGENT_SYSTEM_PROMPT
 
 
 class Planner:
+    MAX_HISTORY_ITEMS = 8
+    MAX_OBSERVATION_CHARS = 2_400
 
     def build_messages(
         self,
@@ -34,7 +36,7 @@ class Planner:
             },
         ]
 
-        for item in history:
+        for item in history[-self.MAX_HISTORY_ITEMS:]:
 
             messages.append(
                 {
@@ -66,7 +68,7 @@ class Planner:
         if not tools:
             return "No tools available."
 
-        return json.dumps(tools, ensure_ascii=False)
+        return json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
 
     def _format_history_item(
         self,
@@ -82,12 +84,14 @@ class Planner:
             return json.dumps(item["action"], ensure_ascii=False)
 
         if item_type == "tool_result":
-
+            result = json.dumps(item.get("result"), ensure_ascii=False, default=str)
+            if len(result) > self.MAX_OBSERVATION_CHARS:
+                result = result[: self.MAX_OBSERVATION_CHARS] + "... [TRUNCATED]"
             return (
                 "TOOL OBSERVATION:\n"
                 f"Tool: {item.get('tool')}\n"
                 f"Success: {item.get('success')}\n"
-                f"Result: {item.get('result')}\n"
+                f"Result: {result}\n"
                 f"Error: {item.get('error')}"
             )
 

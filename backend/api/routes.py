@@ -1,6 +1,9 @@
-"""FastAPI routes for agent runs and trace retrieval."""
+"""FastAPI routes for asynchronous agent runs and live trace retrieval."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import json
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .service import AgentService, create_default_service
@@ -62,3 +65,37 @@ def get_trace(run_id: str, service: AgentService = Depends(get_service)) -> dict
     if trace is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"run_id": run_id, "trace": trace}
+
+
+@router.get("/api/runs/{run_id}/stream")
+async def stream_run(
+    run_id: str,
+    after: int = Query(0, ge=0),
+    last_event_id: str | None = Header(None, alias="Last-Event-ID"),
+    service: AgentService = Depends(get_service),
+):
+    if not service.has_run(run_id):
+        raise HTTPException(status_code=404, detail="Run not found")
+    try:
+        resume_after = max(after, int(last_event_id or 0))
+    except ValueError:
+        resume_after = after
+
+    async def event_stream():
+        async for event in service.stream_events(run_id, resume_after):
+            if event is None:
+                yield "event: heartbeat\ndata: {}\n\n"
+                continue
+            sequence = int(event.get("sequence", 0))
+            data = json.dumps(event, separators=(",", ":"), ensure_ascii=False)
+            yield f"id: {sequence}\nevent: trace\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

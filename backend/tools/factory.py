@@ -20,6 +20,9 @@ def create_tool_registry(
     registry.register(FileReaderTool(root_directory=file_root))
     provider = None
     if config.SEARCH_PROVIDER in {"tavily", ""} and config.TAVILY_API_KEY:
-        provider = TavilySearchProvider(api_key=config.TAVILY_API_KEY)
+        provider = TavilySearchProvider(
+            api_key=config.TAVILY_API_KEY,
+            timeout_seconds=config.SEARCH_TIMEOUT,
+        )
     registry.register(SearchTool(provider))
     return registry

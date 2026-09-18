@@ -46,7 +46,10 @@ class ToolRegistry:
             return ToolResult(success=False, tool=tool.name, error="Tool arguments must be an object.")
 
         try:
-            outcome = await asyncio.to_thread(tool.execute, arguments)
+            if tool.blocking:
+                outcome = await asyncio.to_thread(tool.execute, arguments)
+            else:
+                outcome = tool.execute(arguments)
             if not isinstance(outcome, ToolResult) or outcome.tool != tool.name:
                 return ToolResult(success=False, tool=tool.name, error="Tool returned an invalid response.")
             return outcome

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from backend.agent.llm_client import BaseLLMClient
@@ -36,6 +37,7 @@ class AgentEngine:
             raise ValueError("MAX_AGENT_ITERATIONS must be a positive integer.")
 
     async def run(self, user_query: str, run_id: str | None = None) -> AgentResult:
+        run_started = time.perf_counter()
         state = StateManager.create(
             user_query=user_query,
             maximum_iterations=self.max_iterations,
@@ -44,6 +46,20 @@ class AgentEngine:
         state.add_message("user", user_query)
         state.set_status(AgentStatus.RUNNING)
         trace = self.trace_manager.start_run(state)
+        def record_llm_event(event_type: str, data: dict[str, Any]) -> None:
+            metadata = dict(data)
+            duration_ms = metadata.pop("duration_ms", None)
+            self.trace_manager.record_step(
+                state.run_id,
+                event_type,
+                content=self._llm_event_content(event_type, data),
+                status="FAILED" if event_type == "LLM_PROVIDER_ERROR" else "SUCCESS",
+                error=data.get("code") if event_type == "LLM_PROVIDER_ERROR" else None,
+                metadata=metadata,
+                duration_ms=duration_ms,
+            )
+
+        self.llm.start_run(state.run_id, record_llm_event)
         guard = GuardManager(maximum_iterations=self.max_iterations)
         recovery = RecoveryManager(max_retries=0)
         history: list[dict[str, Any]] = []
@@ -59,7 +75,9 @@ class AgentEngine:
             )
 
             try:
+                llm_started = time.perf_counter()
                 raw_response = await self.llm.generate(messages=messages, tools=available_tools)
+                llm_duration_ms = (time.perf_counter() - llm_started) * 1000
             except Exception as exc:
                 self._record_failure(
                     state,
@@ -86,7 +104,10 @@ class AgentEngine:
 
             history.append({"type": "action", "action": action.model_dump(exclude_none=True)})
             self.trace_manager.record_plan(
-                state.run_id, action.plan, data={"iteration": iteration}
+                state.run_id,
+                action.plan,
+                data={"iteration": iteration, "timing_kind": "llm"},
+                duration_ms=llm_duration_ms,
             )
 
             if action.type == "final":
@@ -97,8 +118,14 @@ class AgentEngine:
                     TraceStepType.FINAL,
                     content=action.answer or "",
                 )
-                self.trace_manager.complete_run(state.run_id, action.answer or "")
-                return self._result(state, trace, "completed")
+                self.trace_manager.complete_run(
+                    state.run_id,
+                    action.answer or "",
+                    duration_ms=(time.perf_counter() - run_started) * 1000,
+                )
+                result = self._result(state, trace, "completed")
+                self.llm.end_run()
+                return result
 
             arguments = action.arguments or {}
             guard_result = guard.check_action(action.tool or "", arguments)
@@ -127,6 +154,7 @@ class AgentEngine:
             )
 
             try:
+                tool_started = time.perf_counter()
                 tool_result = ToolResult.model_validate(
                     await self.tool_registry.execute(action.tool or "", arguments)
                 )
@@ -134,6 +162,7 @@ class AgentEngine:
                 tool_result = ToolResult(
                     success=False, tool=action.tool or "", error=str(exc)
                 )
+            tool_duration_ms = (time.perf_counter() - tool_started) * 1000
 
             tool_call.status = "COMPLETED" if tool_result.success else "FAILED"
             tool_call.result = tool_result.result
@@ -160,6 +189,8 @@ class AgentEngine:
                 tool_name=tool_result.tool,
                 observation=tool_result.result,
                 error=tool_result.error,
+                duration_ms=tool_duration_ms,
+                metadata={"timing_kind": "search" if tool_result.tool == "search" else "tool"},
             )
             history.append({"type": "tool_result", **tool_result.model_dump()})
             if not tool_result.success:
@@ -172,7 +203,19 @@ class AgentEngine:
         message = f"Maximum of {self.max_iterations} iterations reached."
         state.add_error(ErrorType.MAX_ITERATIONS_EXCEEDED.value, message)
         self.trace_manager.fail_run(state.run_id, message)
-        return self._result(state, trace, "max_iterations")
+        result = self._result(state, trace, "max_iterations")
+        self.llm.end_run()
+        return result
+
+    @staticmethod
+    def _llm_event_content(event_type: str, data: dict[str, Any]) -> str:
+        if event_type == "LLM_PROVIDER_SELECTED":
+            return f"Selected {data.get('provider')}/{data.get('model')}"
+        if event_type == "LLM_PROVIDER_ERROR":
+            return f"{data.get('provider')}/{data.get('model')} failed: {data.get('code')}"
+        if event_type == "LLM_FALLBACK":
+            return f"Falling back from {data.get('from')} to {data.get('to')}"
+        return event_type
 
     def _record_failure(
         self,

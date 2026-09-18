@@ -36,10 +36,20 @@ def main() -> int:
         from backend.agent.config import AgentConfig
         config = AgentConfig()
         print("PASS configuration values")
-        print("PASS GEMINI_API_KEY configured: yes" if config.GEMINI_API_KEY else
-              "PASS GEMINI_API_KEY configured: no (optional for mocks; add to .env for Gemini)")
-        print("PASS search configured: yes" if config.TAVILY_API_KEY else
-              "PASS search configured: no (optional; search returns a structured error)")
+        print(f"PASS Gemini key configured: {'YES' if config.GEMINI_API_KEY else 'NO'}")
+        print(f"PASS OpenAI key configured: {'YES' if config.OPENAI_API_KEY else 'NO'}")
+        print(f"PASS Search key configured: {'YES' if config.TAVILY_API_KEY else 'NO'}")
+        print(f"PASS Configured LLM mode: {config.LLM_PROVIDER_MODE}")
+        chain = []
+        if config.LLM_PROVIDER_MODE in {"gemini", "fallback"} and config.GEMINI_API_KEY:
+            chain.extend([
+                f"gemini/{config.GEMINI_PRIMARY_MODEL}",
+            ])
+            if config.LLM_PROVIDER_MODE == "fallback":
+                chain.append(f"gemini/{config.GEMINI_FALLBACK_MODEL}")
+        if config.LLM_PROVIDER_MODE in {"openai", "fallback"} and config.OPENAI_API_KEY:
+            chain.append(f"openai/{config.OPENAI_MODEL}")
+        print("PASS Configured chain: " + (" -> ".join(chain) if chain else "none"))
         from backend.tools.factory import create_tool_registry
         registry = create_tool_registry(config)
         names = registry.list_tools()

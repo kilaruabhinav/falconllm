@@ -9,6 +9,7 @@ from .base_tool import BaseTool, ToolResult
 
 
 class FileReaderTool(BaseTool):
+    blocking = True
     name = "file_reader"
     description = "Read a UTF-8 text document from the configured data directory."
     input_schema = {

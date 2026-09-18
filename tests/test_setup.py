@@ -13,6 +13,7 @@ from backend.agent.config import AgentConfig, DEFAULT_GEMINI_MODEL
 from backend.agent.gemini_client import GeminiLLMClient
 from backend.agent.llm_factory import create_llm
 from backend.agent.parser import AgentParseError, parse_agent_response
+from backend.agent.provider_errors import LLMProviderFailure
 from backend.tools.mock_registry import MockToolRegistry
 
 
@@ -37,8 +38,10 @@ def test_parser_accepts_fenced_json(fence):
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    for name in ["GEMINI_API_KEY", "OPENAI_API_KEY", "LLM_PROVIDER", "GEMINI_MODEL",
-                 "LLM_TIMEOUT", "MAX_AGENT_ITERATIONS"]:
+    for name in ["GEMINI_API_KEY", "OPENAI_API_KEY", "OPENAI_MODEL", "LLM_PROVIDER",
+                 "LLM_PROVIDER_MODE", "GEMINI_MODEL", "GEMINI_PRIMARY_MODEL",
+                 "GEMINI_FALLBACK_MODEL", "LLM_TIMEOUT", "MAX_AGENT_ITERATIONS",
+                 "MAX_LLM_RETRIES", "LLM_PROVIDER_COOLDOWN_SECONDS", "SEARCH_TIMEOUT"]:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -63,21 +66,21 @@ def test_invalid_config(clean_env, monkeypatch, name, value):
 
 
 def test_missing_key_and_unsupported_provider(clean_env, monkeypatch):
-    with pytest.raises(ValueError, match="GEMINI_API_KEY is missing. Add it to .env."):
+    with pytest.raises(ValueError, match="No LLM provider is configured"):
         create_llm(AgentConfig(None))
-    monkeypatch.setenv("LLM_PROVIDER", "openai")
-    with pytest.raises(ValueError, match="Unsupported LLM provider"):
+    monkeypatch.setenv("LLM_PROVIDER_MODE", "unsupported")
+    with pytest.raises(ValueError, match="LLM_PROVIDER_MODE"):
         create_llm(AgentConfig(None))
 
 
 def test_real_cli_missing_key_exits_without_traceback():
-    env = dict(os.environ, GEMINI_API_KEY="", LLM_PROVIDER="gemini", GEMINI_MODEL=DEFAULT_GEMINI_MODEL,
-               MAX_AGENT_ITERATIONS="2", LLM_TIMEOUT="5")
+    env = dict(os.environ, GEMINI_API_KEY="", OPENAI_API_KEY="", LLM_PROVIDER_MODE="gemini",
+               GEMINI_PRIMARY_MODEL=DEFAULT_GEMINI_MODEL, MAX_AGENT_ITERATIONS="2", LLM_TIMEOUT="5")
     result = subprocess.run([sys.executable, "run_real_agent.py", "--query", "test"],
                             cwd=Path(__file__).resolve().parents[1], env=env,
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 1
-    assert "GEMINI_API_KEY is missing. Add it to .env." in result.stdout
+    assert "No LLM provider is configured" in result.stdout
     assert "Traceback" not in result.stderr
 
 
@@ -133,7 +136,7 @@ async def test_gemini_safe_errors(sdk, failure, match):
     fake, _ = sdk
     fake.aio.models.generate_content.side_effect = failure
     client = GeminiLLMClient("test-placeholder")
-    with pytest.raises(RuntimeError, match=match) as caught:
+    with pytest.raises(LLMProviderFailure, match=match) as caught:
         await client.generate([], [])
     assert "secret-request-details" not in str(caught.value)
 
@@ -142,5 +145,5 @@ async def test_gemini_safe_errors(sdk, failure, match):
 async def test_gemini_empty_response(sdk):
     fake, _ = sdk
     fake.aio.models.generate_content.return_value = SimpleNamespace(text=" ")
-    with pytest.raises(RuntimeError, match="empty response"):
+    with pytest.raises(LLMProviderFailure, match="empty response"):
         await GeminiLLMClient("test-placeholder").generate([], [])

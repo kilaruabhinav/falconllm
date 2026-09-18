@@ -38,9 +38,29 @@ async def test_registry_discovery_and_structured_errors():
 def test_search_provider_adapter_and_no_provider_failure():
     result = SearchTool(StubSearchProvider()).execute({"query": "agents", "max_results": 1})
     assert result.success is True
-    assert result.result[0]["content"] == "agents"
+    assert result.result[0] == {
+        "title": "Result",
+        "url": "https://example.test",
+        "snippet": "agents",
+    }
     assert SearchTool().execute({"query": "agents"}).success is False
     assert SearchTool(StubSearchProvider()).execute({"query": "agents", "max_results": 11}).success is False
+
+
+def test_search_defaults_to_three_and_compresses_payloads():
+    class LargeProvider(SearchProvider):
+        def __init__(self):
+            self.requested = None
+
+        def search(self, query, max_results):
+            self.requested = max_results
+            return [{"title": "T", "url": "u", "content": "x" * 900, "raw_content": "secret"}]
+
+    provider = LargeProvider()
+    result = SearchTool(provider).execute({"query": "agents"})
+    assert provider.requested == 3
+    assert len(result.result[0]["snippet"]) == 700
+    assert "raw_content" not in result.result[0]
 
 
 def test_file_reader_success_and_required_failures(tmp_path: Path):

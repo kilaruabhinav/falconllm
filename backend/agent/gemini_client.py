@@ -6,9 +6,16 @@ from google.genai import types
 
 from backend.agent.config import DEFAULT_GEMINI_MODEL
 from backend.agent.llm_client import BaseLLMClient
+from backend.agent.provider_errors import (
+    LLMProviderFailure,
+    ProviderErrorCode,
+    classify_provider_exception,
+)
 
 
 class GeminiLLMClient(BaseLLMClient):
+    provider = "gemini"
+
     def __init__(self, api_key: str, model: str = DEFAULT_GEMINI_MODEL, timeout: float = 30):
         if not api_key or not api_key.strip():
             raise ValueError("GEMINI_API_KEY is missing. Add it to .env.")
@@ -43,16 +50,25 @@ class GeminiLLMClient(BaseLLMClient):
                 timeout=self.timeout,
             )
         except asyncio.TimeoutError:
-            raise RuntimeError(f"Gemini request timed out after {self.timeout:g} seconds.") from None
+            raise LLMProviderFailure(
+                provider=self.provider,
+                model=self.model,
+                code=ProviderErrorCode.TIMEOUT,
+                message="Gemini request timed out.",
+                retryable=True,
+            ) from None
         except Exception as exc:
-            # SDK exceptions can contain request details. Never put them in traces.
-            code = getattr(exc, "code", None)
-            label = f" (HTTP {code})" if isinstance(code, int) else ""
-            raise RuntimeError(
-                f"Gemini request failed{label}. Check API key, model access, quota, and network."
+            raise classify_provider_exception(
+                exc, provider=self.provider, model=self.model
             ) from None
         if not response.text or not response.text.strip():
-            raise RuntimeError("Gemini returned an empty response.")
+            raise LLMProviderFailure(
+                provider=self.provider,
+                model=self.model,
+                code=ProviderErrorCode.UNKNOWN_PROVIDER_ERROR,
+                message="Gemini returned an empty response.",
+                retryable=False,
+            )
         return response.text
 
     async def aclose(self):
