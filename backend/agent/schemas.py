@@ -1,6 +1,8 @@
 from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.core.trace import TraceStep
+
 
 class ToolDefinition(BaseModel):
     name: str
@@ -59,17 +61,10 @@ class AgentAction(BaseModel):
         return self
 
 
-class TraceStep(BaseModel):
-    step: int
-    type: str
-    content: Optional[str] = None
-    tool: Optional[str] = None
-    arguments: Optional[Dict[str, Any]] = None
-    result: Optional[Any] = None
-    error: Optional[str] = None
-
-
 class AgentResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    run_id: str
     status: Literal[
         "completed",
         "failed",

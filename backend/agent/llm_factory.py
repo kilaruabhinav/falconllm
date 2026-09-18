@@ -1,18 +1,47 @@
 from backend.agent.config import AgentConfig
+from backend.agent.fallback_llm import FallbackLLMClient
 from backend.agent.llm_client import BaseLLMClient
 
 
 def create_llm(config: AgentConfig | None = None) -> BaseLLMClient:
     config = config or AgentConfig()
-    provider = config.LLM_PROVIDER.strip().lower()
-    if provider == "gemini":
-        if not config.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is missing. Add it to .env.")
-        from backend.agent.gemini_client import GeminiLLMClient
+    mode = config.LLM_PROVIDER_MODE
+    clients: list[BaseLLMClient] = []
 
-        return GeminiLLMClient(
-            api_key=config.GEMINI_API_KEY,
-            model=config.GEMINI_MODEL,
-            timeout=config.LLM_TIMEOUT,
+    if mode in {"gemini", "fallback"} and config.GEMINI_API_KEY:
+        from backend.agent.gemini_client import GeminiLLMClient
+        models = [config.GEMINI_PRIMARY_MODEL]
+        if mode == "fallback" and config.GEMINI_FALLBACK_MODEL not in models:
+            models.append(config.GEMINI_FALLBACK_MODEL)
+        clients.extend(
+            GeminiLLMClient(
+                api_key=config.GEMINI_API_KEY,
+                model=model,
+                timeout=config.LLM_TIMEOUT,
+            )
+            for model in models
         )
-    raise ValueError(f"Unsupported LLM provider: {provider}. Only gemini is implemented.")
+
+    if mode in {"openai", "fallback"} and config.OPENAI_API_KEY:
+        from backend.agent.openai_client import OpenAILLMClient
+        clients.append(
+            OpenAILLMClient(
+                api_key=config.OPENAI_API_KEY,
+                model=config.OPENAI_MODEL,
+                timeout=config.LLM_TIMEOUT,
+            )
+        )
+
+    if not clients:
+        required = {
+            "gemini": "GEMINI_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "fallback": "GEMINI_API_KEY or OPENAI_API_KEY",
+        }[mode]
+        raise ValueError(f"No LLM provider is configured. Set {required} in .env.")
+
+    return FallbackLLMClient(
+        clients,
+        cooldown_seconds=config.LLM_PROVIDER_COOLDOWN_SECONDS,
+        max_retries=config.MAX_LLM_RETRIES,
+    )

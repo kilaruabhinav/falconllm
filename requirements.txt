@@ -1,7 +1,13 @@
-# Direct runtime dependencies (google-genai 2.24.0 verified locally).
+# Runtime
 python-dotenv>=1.2,<2
 pydantic>=2.13,<3
 google-genai>=2.24,<3
-# Offline test suite.
+openai>=3.14,<4
+requests>=2.31,<3
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+
+# Tests
 pytest>=9,<10
 pytest-asyncio>=1.4,<2
+httpx>=0.28,<1

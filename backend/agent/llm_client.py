@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import List, Dict, Any
+
+LLMEventHandler = Callable[[str, dict[str, Any]], None]
 
 
 class BaseLLMClient(ABC):
@@ -16,3 +19,9 @@ class BaseLLMClient(ABC):
 
     async def aclose(self) -> None:
         """Release transport resources, if any. In-memory clients need no cleanup."""
+
+    def start_run(self, run_id: str, event_handler: LLMEventHandler | None = None) -> None:
+        """Bind optional run-scoped infrastructure tracing; transports may ignore it."""
+
+    def end_run(self) -> None:
+        """Release run-scoped routing state without closing the transport."""

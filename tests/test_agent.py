@@ -4,6 +4,7 @@ from backend.agent.engine import AgentEngine
 from backend.agent.mock_llm import (
     MockLLMClient,
 )
+from backend.agent.planner import Planner
 from backend.tools.mock_registry import (
     MockToolRegistry,
 )
@@ -116,8 +117,8 @@ async def test_malformed_output_recovery(bad):
     llm = MockLLMClient([bad, final_action()])
     result = await AgentEngine(llm, MockToolRegistry()).run("test")
     assert result.status == "completed"
-    assert result.trace[0].type == "parse_error"
-    assert any("invalid" in m["content"] for m in llm.calls[1]["messages"])
+    assert any(step.type == "parse_error" for step in result.trace)
+    assert any("invalid" in m["content"].lower() for m in llm.calls[1]["messages"])
 
 
 @pytest.mark.asyncio
@@ -134,7 +135,7 @@ async def test_llm_exception_recovery():
     llm = MockLLMClient([RuntimeError("temporarily unavailable"), final_action()])
     result = await AgentEngine(llm, MockToolRegistry()).run("test")
     assert result.status == "completed"
-    assert result.trace[0].type == "llm_error"
+    assert any(step.type == "llm_error" for step in result.trace)
     assert any("temporarily unavailable" in m["content"] for m in llm.calls[1]["messages"])
 
 
@@ -143,8 +144,9 @@ async def test_persistent_llm_failure_is_bounded():
     llm = MockLLMClient([RuntimeError("unavailable")] * 5)
     result = await AgentEngine(llm, MockToolRegistry(), config=TestConfig).run("test")
     assert result.status == "max_iterations"
-    assert len(result.trace) == 5
-    assert all(s.type == "llm_error" for s in result.trace)
+    assert [s.type for s in result.trace].count("llm_error") == 5
+    assert result.trace[0].type == "run_started"
+    assert result.trace[-1].type == "run_failed"
 
 
 @pytest.mark.asyncio
@@ -186,3 +188,15 @@ async def test_dynamic_registry_and_repeated_runs():
     assert result2.iterations == 1
     assert result2.trace[0].step == 1
     assert not any("TOOL OBSERVATION" in m["content"] for m in llm.calls[2]["messages"])
+
+
+def test_planner_bounds_history_and_observation_size():
+    history = [
+        {"type": "tool_result", "tool": "search", "success": True, "result": "x" * 10_000}
+        for _ in range(12)
+    ]
+    messages = Planner().build_messages("query", history, [], 3)
+    observations = [message for message in messages if "TOOL OBSERVATION" in message["content"]]
+    assert len(observations) == Planner.MAX_HISTORY_ITEMS
+    assert all("[TRUNCATED]" in message["content"] for message in observations)
+    assert all(len(message["content"]) < 2_600 for message in observations)

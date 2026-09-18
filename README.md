@@ -1,84 +1,189 @@
-# FalconLLM custom agent core
+# FalconLLM
 
-Python 3.11+; development branch: `Abhi-agent-core`.
+FalconLLM is a custom AI agent framework built for Track 2, “Build the Brain, Not the Puppet.” It does not use LangChain, CrewAI, AutoGen, LlamaIndex agents, keyword routing, or a ready-made orchestrator.
 
-The decision loop is our own code:
+The runtime flow is:
 
-User → AgentEngine → LLM → validated AgentAction → ToolRegistry → observation → LLM → final answer.
+```text
+USER → AgentEngine → LLM → validated AgentAction → ToolRegistry
+     → ToolResult observation → State/Trace → repeat or FINAL
+```
 
-There is no agent framework or keyword router. Gemini uses the direct `google-genai`
-async SDK, with automatic SDK function calling disabled. Tool schemas are injected
-on every iteration. `plan` contains only a short operational summary, not private
-chain-of-thought. The engine records actions and observations, allows recovery from
-parse/LLM/tool errors, and returns `max_iterations` if it exhausts its budget.
+The LLM chooses tools from their descriptions and JSON schemas. The engine executes a bounded `PLAN → ACT → OBSERVE → REPEAT → FINAL` loop. A plan is only a concise operational summary; hidden chain-of-thought is neither requested nor exposed.
 
-## Setup on macOS
+Provider availability is isolated behind the same `BaseLLMClient` interface:
 
-Run from the repository root. Reuse the existing `venv`; if it does not exist,
-create it with `python3 -m venv venv`.
+```text
+AgentEngine
+    ↓
+FallbackLLMClient
+    ├── Gemini primary
+    ├── Gemini fallback
+    └── OpenAI
+    ↓
+AgentAction JSON → AgentEngine continues
+```
+
+The router changes transports without restarting the agent run. Existing actions, tool observations, iteration counters, state, and trace remain in the prompt sent to the next provider.
+
+Runs are dispatched asynchronously. `POST /api/runs` returns a `run_id` immediately, while `GET /api/runs/{run_id}/stream` delivers real trace steps over Server-Sent Events as the engine is still executing. Each event is also written to SQLite; reconnecting clients first load persisted steps and resume after the last sequence number without duplicating entries. The stream sends non-persisted heartbeats during idle periods.
+
+## Team contributions
+
+- Abhinav — agent engine, Gemini client, parser, schemas, orchestration, mock LLM
+- Rishith — modular tools, safe calculator, search adapter, safe file reader, registry
+- Sasidhar — state, trace events, SQLite persistence, recovery, loop guards
+- Rohith — FastAPI boundary, React/Vite UI, trace display and frontend contract
+
+## Project layout
+
+```text
+backend/
+  agent/       LLM-driven loop, prompts, parsing, provider clients and schemas
+  tools/       tool contract, production registry and concrete tools
+  core/        state, traces, guards, recovery, errors and SQLite persistence
+  api/         FastAPI app, routes and AgentService
+frontend/      React/Vite application
+data/          files explicitly available to the file-reader tool
+scripts/       setup diagnostics
+tests/         unit, integration, persistence and API tests
+run_demo.py    credential-free real-registry multi-tool demo
+run_real_agent.py  live Gemini CLI
+```
+
+There is one canonical `AgentAction`, `ToolDefinition`, `ToolResult`, and `AgentResult` in `backend/agent/schemas.py`; the canonical persistent `TraceStep` is in `backend/core/trace.py`. `AgentState` is in `backend/core/state.py`.
+
+## Setup (macOS/Linux)
+
+Python 3.11+ and Node.js 20.19+ (or 22.12+) are recommended.
 
 ```sh
+python3 -m venv venv
 ./venv/bin/python -m pip install -r requirements.txt
+cd frontend && npm ci && cd ..
+cp .env.example .env
+```
+
+Keep the generated `.env` local and add credentials only when needed. It is ignored by Git.
+
+On Windows PowerShell, replace the virtualenv commands with:
+
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+## Environment
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LLM_PROVIDER_MODE` | `fallback` | `fallback`, `gemini`, or `openai` |
+| `GEMINI_API_KEY` | empty | Enables Gemini clients |
+| `GEMINI_PRIMARY_MODEL` | `gemini-3.8-flash` | First model in fallback mode |
+| `GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Second model in fallback mode |
+| `OPENAI_API_KEY` | empty | Enables the OpenAI client |
+| `OPENAI_MODEL` | `gpt-5-mini` | Configurable OpenAI Responses API model |
+| `MAX_LLM_RETRIES` | `1` | Retries for transient timeout/service errors; quota failures are never retried |
+| `LLM_PROVIDER_COOLDOWN_SECONDS` | `60` | Process cooldown after a provider/model failure |
+| `SEARCH_TIMEOUT` | `10` | Search-provider request timeout in seconds |
+| `MAX_AGENT_ITERATIONS` | `10` | Hard loop bound |
+| `LLM_TIMEOUT` | `30` | LLM request timeout in seconds |
+| `SEARCH_PROVIDER` | empty | Set to `tavily` for live search |
+| `TAVILY_API_KEY` / `SEARCH_API_KEY` | empty | Optional Tavily credential |
+| `DATABASE_URL` | `sqlite:///agent.db` | Run and trace persistence |
+| `BACKEND_HOST` | `127.0.0.1` | Documented backend bind host |
+| `BACKEND_PORT` | `8000` | Documented backend port |
+| `VITE_API_BASE_URL` | `http://localhost:8000` | Frontend API target (set in `frontend/.env`) |
+
+In `fallback` mode, missing provider keys are skipped. If both Gemini and OpenAI keys are missing, startup produces one clean configuration error. Set `LLM_PROVIDER_MODE=openai` for OpenAI only or `LLM_PROVIDER_MODE=gemini` to disable fallback and use Gemini only.
+
+Quota/rate-limit, authentication, timeout, model-unavailable, and service-unavailable failures can advance the router. Quota failures immediately disable that model for the current run and place it in process cooldown; the chain never moves backward. Invalid `AgentAction` JSON, unknown tools, and tool failures remain agent-level recovery events and do not switch providers.
+
+Without a search key, the search tool returns a structured “not configured” failure; it never fabricates production results.
+
+## Run the system
+
+Backend:
+
+```sh
+./venv/bin/python -m uvicorn backend.api.app:app --host 127.0.0.1 --port 8000
+```
+
+Frontend, in another terminal:
+
+```sh
+cd frontend
+npm run dev
+```
+
+The browser displays `RUNNING` immediately and updates PLAN, tool, recovery, provider-fallback, final, and terminal events live. Refreshing during an active run restores its persisted trace and reconnects to the SSE stream.
+
+### Live API contract
+
+```text
+POST /api/runs                    -> { run_id, status: "running", dispatch_ms }
+GET  /api/runs/{run_id}/stream    -> text/event-stream
+GET  /api/runs/{run_id}/trace     -> persisted trace catch-up
+GET  /api/runs/{run_id}           -> persisted run status/result
+```
+
+SSE trace records use their stable sequence as the event ID. Browsers reconnect with `Last-Event-ID`; callers may also pass `?after=<sequence>`.
+
+Open `http://localhost:5173`. The UI submits to the real backend and renders operational plans, tool calls/results, failures, recovery events, final answers, and persisted run history.
+
+API endpoints:
+
+- `GET /health`
+- `POST /api/runs` with `{"prompt":"..."}`
+- `GET /api/runs`
+- `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/trace`
+
+## Demos and tests
+
+The offline demo uses the real file-reader and calculator implementations with a deterministic mock LLM, proving a two-tool flow without credentials:
+
+```sh
+./venv/bin/python run_demo.py
+```
+
+Run a live provider-routed task:
+
+```sh
+./venv/bin/python run_real_agent.py --query "What is 40 + 2?"
+```
+
+Inspect and simulate the full fallback chain without consuming Gemini quota:
+
+```sh
+./venv/bin/python scripts/test_llm_fallback.py --simulate-gemini-429
+```
+
+Optionally make one small OpenAI request:
+
+```sh
+./venv/bin/python scripts/test_llm_fallback.py --live-openai
+```
+
+Validate everything:
+
+```sh
 ./venv/bin/python scripts/check_setup.py
 ./venv/bin/python -m pytest -v
-./venv/bin/python run_demo.py
 ./venv/bin/python -m compileall backend tests scripts
+cd frontend && npm ci && npm run build && npm run lint
 ```
 
-The global `python3` may not have these dependencies. Either keep using the explicit
-venv interpreter or run `source venv/bin/activate` before using `python3`.
-Only the five direct runtime/test dependencies are listed in requirements.txt.
-Existing unused packages in the venv do not need to be removed.
+## Adding a tool
 
-## Real Gemini run
+1. Subclass `BaseTool` and provide `name`, `description`, `input_schema`, and `execute(arguments)`.
+2. Return the shared `ToolResult` for success and failure; do not raise routine validation errors.
+3. Register the tool in `create_tool_registry()`.
+4. Add focused tool and agent-flow tests. The engine requires no tool-specific branches.
 
-If `.env` does not exist, copy `.env.example` to `.env`, then set `GEMINI_API_KEY`.
-Keep an existing `.env`; do not overwrite it. It is ignored by Git.
+## Failure recovery
 
-```sh
-./venv/bin/python run_real_agent.py
-# Or run without a terminal prompt:
-./venv/bin/python run_real_agent.py --query 'What is 40 + 2?'
-```
+Malformed LLM output, unknown tools, bad arguments, tool failures, repeated actions, loops, and max-iteration exhaustion become structured state and trace events. Provider switching produces `LLM_PROVIDER_SELECTED`, `LLM_PROVIDER_ERROR`, and `LLM_FALLBACK` infrastructure events. Failures are returned to the next agent iteration as observations when appropriate so it may choose a retry, another tool, or a limited final answer. Guards and iteration limits prevent endless retries. Trace payloads redact credential-shaped fields and SQLite persistence is injectable, keeping tests isolated.
 
-Configuration is read when `AgentConfig()` is instantiated. It loads the root `.env`
-without overriding existing environment variables. `AgentConfig(env_file=None)`
-skips dotenv loading for isolated tests. Missing credentials produce setup instructions
-and exit code 1; mock tests and the demo require no key. The CLI prints status, answer,
-iterations, and JSON trace entries. An unfinished run also exits with code 1.
-
-| Setting | Default / meaning |
-| --- | --- |
-| `LLM_PROVIDER` | `gemini`; only implemented real provider |
-| `GEMINI_API_KEY` | Required only for real Gemini requests |
-| `OPENAI_API_KEY` | Read for future integration; no OpenAI adapter yet |
-| `GEMINI_MODEL` | `gemini-3.5-flash` |
-| `MAX_AGENT_ITERATIONS` | Positive integer, default `10` |
-| `LLM_TIMEOUT` | Finite positive seconds per call, default `30` |
-
-The previous unverified `gemini-3.8-flash` default was replaced with
-[`gemini-3.5-flash`, documented as stable](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash).
-Model availability still depends on the API account. The SDK accepts model IDs as
-strings; the server determines access. A custom `GEMINI_MODEL` is respected.
-Transport errors omit raw SDK request details so credentials cannot enter traces.
-
-## Integration boundaries
-
-- `BaseLLMClient.generate(messages, tools)` is async and returns text. Production
-  adapters own their transport and resource cleanup, not the agent loop.
-- The structural `backend.tools.registry.ToolRegistry` contract exposes synchronous
-  `get_tool_schemas() -> list[dict]` and async
-  `execute(tool_name, arguments) -> ToolResult`. Parameters use JSON Schema.
-  Tool failures should return `ToolResult(success=False, tool=..., error=...)`.
-  Raised execution exceptions also become observations. Schema discovery is expected
-  to succeed and return JSON-serializable definitions.
-- Replace `MockToolRegistry` in the entry points with the teammate's implementation;
-  the engine needs no tool-specific changes. The mock calculator supports bounded
-  basic arithmetic without `eval`. Mock search is synthetic and does not browse.
-- State/history and trace are local to each run. The existing `trace_manager` argument
-  remains reserved and unused until the state/tracing teammate defines its interface.
-  Trace step numbers start at 1 per run. FastAPI/frontend can consume
-  `AgentResult.model_dump(mode="json")` without importing CLI code.
-- Cancellation propagates; ordinary failures are bounded by the iteration budget.
-  Persistent errors currently end with `max_iterations`; backoff, durable state,
-  and specialized recovery policies remain future integration work.
+Latency metadata is attached without adding model calls: PLAN steps record LLM duration, TOOL_RESULT records tool/search duration, and RUN_COMPLETED records total run time plus aggregate SQLite-write timing. Search defaults to three results and sends only title, URL, and a bounded snippet to the agent. Planner history is bounded to the eight most recent items with large observations truncated. Provider SDK clients and their HTTP pools are reused across runs while each run gets isolated fallback-router state.

@@ -1,0 +1,97 @@
+{
+  "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+  "status": "COMPLETED",
+  "started_at": "2026-09-17T16:00:00+00:00",
+  "completed_at": "2026-09-17T16:00:03+00:00",
+  "error": null,
+  "final_output": "Retrieval Augmented Generation (RAG) is an AI architecture that enhances large language models by retrieving relevant documents from an external knowledge base before generating responses.",
+  "total_steps": 5,
+  "steps": [
+    {
+      "step_id": "902d1dcb-bf39-4d6b-b0b9-5054191d4e10",
+      "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+      "sequence": 1,
+      "step_type": "RUN_STARTED",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:00:00+00:00",
+      "content": "Agent execution started",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "user_query": "What is RAG?"
+      }
+    },
+    {
+      "step_id": "e0b9d5c8-1111-4099-974d-96f3c16262a2",
+      "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+      "sequence": 2,
+      "step_type": "PLAN",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:00:01+00:00",
+      "content": "Need to search knowledge base for RAG architecture overview",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "iteration": 1
+      }
+    },
+    {
+      "step_id": "fc488421-5a52-47a2-9964-b81604a11be3",
+      "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+      "sequence": 3,
+      "step_type": "ACTION",
+      "status": "STARTED",
+      "created_at": "2026-09-17T16:00:01+00:00",
+      "content": "Agent selected tool 'search'",
+      "tool_name": "search",
+      "arguments": {
+        "query": "What is RAG in AI?"
+      },
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {}
+    },
+    {
+      "step_id": "2d94a11f-8ba5-4159-86f7-b8ba07f9c2d1",
+      "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+      "sequence": 4,
+      "step_type": "OBSERVATION",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:00:02+00:00",
+      "content": "Search returned authoritative definition",
+      "tool_name": null,
+      "arguments": null,
+      "observation": {
+        "success": true,
+        "result": "RAG enhances LLM outputs by retrieving relevant documents from knowledge bases."
+      },
+      "error": null,
+      "duration_ms": 940.5,
+      "metadata": {}
+    },
+    {
+      "step_id": "f5e9d3d3-78ea-4861-bf96-52c6f11200fa",
+      "run_id": "7a94b593-57f9-4672-8ee8-5d25e0766ce5",
+      "sequence": 5,
+      "step_type": "RUN_COMPLETED",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:00:03+00:00",
+      "content": "Agent completed execution with final answer",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "final_answer": "Retrieval Augmented Generation (RAG) is an AI architecture that enhances large language models by retrieving relevant documents from an external knowledge base before generating responses."
+      }
+    }
+  ]
+}

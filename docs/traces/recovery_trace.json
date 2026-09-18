@@ -1,0 +1,139 @@
+{
+  "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+  "status": "COMPLETED",
+  "started_at": "2026-09-17T16:09:12+00:00",
+  "completed_at": "2026-09-17T16:09:15+00:00",
+  "error": null,
+  "final_output": "Vector databases index document embeddings for similarity search.",
+  "total_steps": 7,
+  "steps": [
+    {
+      "step_id": "01a4e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 1,
+      "step_type": "RUN_STARTED",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:09:12+00:00",
+      "content": "Agent execution started",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "user_query": "Explain vector databases"
+      }
+    },
+    {
+      "step_id": "02b5e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 2,
+      "step_type": "PLAN",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:09:12+00:00",
+      "content": "Query search tool for vector database details",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "iteration": 1
+      }
+    },
+    {
+      "step_id": "03c6e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 3,
+      "step_type": "ACTION",
+      "status": "STARTED",
+      "created_at": "2026-09-17T16:09:13+00:00",
+      "content": "Agent selected tool 'search'",
+      "tool_name": "search",
+      "arguments": {
+        "query": "vector databases"
+      },
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {}
+    },
+    {
+      "step_id": "04d7e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 4,
+      "step_type": "ERROR",
+      "status": "FAILED",
+      "created_at": "2026-09-17T16:09:13+00:00",
+      "content": "Agent error: Search tool timed out after 5000ms",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": "Search tool timed out after 5000ms",
+      "duration_ms": 5002.1,
+      "metadata": {
+        "error_code": "ERR_TOOL_TIMEOUT",
+        "error_type": "TOOL_TIMEOUT",
+        "message": "Search tool timed out after 5000ms",
+        "retryable": true,
+        "recommended_action": "retry_with_backoff"
+      }
+    },
+    {
+      "step_id": "05e8e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 5,
+      "step_type": "RECOVERY",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:09:13+00:00",
+      "content": "Recovery decision generated",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "action": "RETRY",
+        "reason": "Retrying after TOOL_TIMEOUT (attempt 1/2)",
+        "retry": true,
+        "retry_delay": 1.0,
+        "recommended_action": "retry_with_backoff"
+      }
+    },
+    {
+      "step_id": "06f9e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 6,
+      "step_type": "OBSERVATION",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:09:14+00:00",
+      "content": "Retry succeeded: returned vector database documentation",
+      "tool_name": null,
+      "arguments": null,
+      "observation": {
+        "success": true,
+        "result": "Vector databases store high-dimensional vectors and perform ANN search."
+      },
+      "error": null,
+      "duration_ms": 420.0,
+      "metadata": {}
+    },
+    {
+      "step_id": "07a0e518-8a03-4f24-9b88-12cd801fae29",
+      "run_id": "9c3ff315-113e-4e4e-b3ed-4458a3ac5a55",
+      "sequence": 7,
+      "step_type": "RUN_COMPLETED",
+      "status": "SUCCESS",
+      "created_at": "2026-09-17T16:09:15+00:00",
+      "content": "Agent completed execution with final answer",
+      "tool_name": null,
+      "arguments": null,
+      "observation": null,
+      "error": null,
+      "duration_ms": null,
+      "metadata": {
+        "final_answer": "Vector databases index document embeddings for similarity search."
+      }
+    }
+  ]
+}
