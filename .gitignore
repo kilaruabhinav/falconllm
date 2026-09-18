@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.db
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+node_modules/
+.vscode/
