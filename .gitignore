@@ -1,8 +1,15 @@
 venv/
 .env
+frontend/.env
 __pycache__/
-*.pyc
+*.py[cod]
 .DS_Store
 .pytest_cache/
+.coverage
+node_modules/
+frontend/node_modules/
 .vscode/
 .idea/
+*.db
+*.sqlite
+*.sqlite3
